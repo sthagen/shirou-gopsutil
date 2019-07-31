@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -50,6 +51,12 @@ func TestByteToString(t *testing.T) {
 	}
 }
 
+func TestHexToUint32(t *testing.T) {
+	if HexToUint32("FFFFFFFF") != 4294967295 {
+		t.Error("Could not convert")
+	}
+}
+
 func TestmustParseInt32(t *testing.T) {
 	ret := mustParseInt32("11111")
 	if ret != int32(11111) {
@@ -92,6 +99,9 @@ func TestPathExists(t *testing.T) {
 }
 
 func TestHostEtc(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows doesn't have etc")
+	}
 	p := HostEtc("mtab")
 	if p != "/etc/mtab" {
 		t.Errorf("invalid HostEtc, %s", p)

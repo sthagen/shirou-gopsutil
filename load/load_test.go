@@ -15,6 +15,7 @@ func TestLoad(t *testing.T) {
 	if v == empty {
 		t.Errorf("error load: %v", v)
 	}
+	t.Log(v)
 }
 
 func TestLoadAvgStat_String(t *testing.T) {
@@ -27,6 +28,7 @@ func TestLoadAvgStat_String(t *testing.T) {
 	if e != fmt.Sprintf("%v", v) {
 		t.Errorf("LoadAvgStat string is invalid: %v", v)
 	}
+	t.Log(e)
 }
 
 func TestMisc(t *testing.T) {
@@ -39,16 +41,19 @@ func TestMisc(t *testing.T) {
 	if v == empty {
 		t.Errorf("error load: %v", v)
 	}
+	t.Log(v)
 }
 
 func TestMiscStatString(t *testing.T) {
 	v := MiscStat{
+		ProcsTotal:   4,
 		ProcsRunning: 1,
 		ProcsBlocked: 2,
 		Ctxt:         3,
 	}
-	e := `{"procsRunning":1,"procsBlocked":2,"ctxt":3}`
+	e := `{"procsTotal":4,"procsRunning":1,"procsBlocked":2,"ctxt":3}`
 	if e != fmt.Sprintf("%v", v) {
 		t.Errorf("TestMiscString string is invalid: %v", v)
 	}
+	t.Log(e)
 }

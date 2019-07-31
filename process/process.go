@@ -1,7 +1,10 @@
 package process
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"math"
 	"runtime"
 	"time"
 
@@ -10,11 +13,10 @@ import (
 	"github.com/shirou/gopsutil/mem"
 )
 
-var invoke common.Invoker
-
-func init() {
-	invoke = common.Invoke{}
-}
+var (
+	invoke          common.Invoker = common.Invoke{}
+	ErrorNoChildren                = errors.New("process does not have children")
+)
 
 type Process struct {
 	Pid            int32 `json:"pid"`
@@ -30,6 +32,8 @@ type Process struct {
 
 	lastCPUTimes *cpu.TimesStat
 	lastCPUTime  time.Time
+
+	tgid int32
 }
 
 type OpenFilesStat struct {
@@ -40,6 +44,7 @@ type OpenFilesStat struct {
 type MemoryInfoStat struct {
 	RSS    uint64 `json:"rss"`    // bytes
 	VMS    uint64 `json:"vms"`    // bytes
+	HWM    uint64 `json:"hwm"`    // bytes
 	Data   uint64 `json:"data"`   // bytes
 	Stack  uint64 `json:"stack"`  // bytes
 	Locked uint64 `json:"locked"` // bytes
@@ -71,6 +76,13 @@ type IOCountersStat struct {
 type NumCtxSwitchesStat struct {
 	Voluntary   int64 `json:"voluntary"`
 	Involuntary int64 `json:"involuntary"`
+}
+
+type PageFaultsStat struct {
+	MinorFaults      uint64 `json:"minorFaults"`
+	MajorFaults      uint64 `json:"majorFaults"`
+	ChildMinorFaults uint64 `json:"childMinorFaults"`
+	ChildMajorFaults uint64 `json:"childMajorFaults"`
 }
 
 // Resource limit constants are from /usr/include/x86_64-linux-gnu/bits/resource.h
@@ -125,23 +137,29 @@ func (p NumCtxSwitchesStat) String() string {
 }
 
 func PidExists(pid int32) (bool, error) {
-	pids, err := Pids()
+	return PidExistsWithContext(context.Background(), pid)
+}
+
+// Background returns true if the process is in background, false otherwise.
+func (p *Process) Background() (bool, error) {
+	return p.BackgroundWithContext(context.Background())
+}
+
+func (p *Process) BackgroundWithContext(ctx context.Context) (bool, error) {
+	fg, err := p.ForegroundWithContext(ctx)
 	if err != nil {
 		return false, err
 	}
-
-	for _, i := range pids {
-		if i == pid {
-			return true, err
-		}
-	}
-
-	return false, err
+	return !fg, err
 }
 
 // If interval is 0, return difference from last call(non-blocking).
 // If interval > 0, wait interval sec and return diffrence between start and end.
 func (p *Process) Percent(interval time.Duration) (float64, error) {
+	return p.PercentWithContext(context.Background(), interval)
+}
+
+func (p *Process) PercentWithContext(ctx context.Context, interval time.Duration) (float64, error) {
 	cpuTimes, err := p.Times()
 	if err != nil {
 		return 0, err
@@ -180,11 +198,15 @@ func calculatePercent(t1, t2 *cpu.TimesStat, delta float64, numcpu int) float64 
 	}
 	delta_proc := t2.Total() - t1.Total()
 	overall_percent := ((delta_proc / delta) * 100) * float64(numcpu)
-	return overall_percent
+	return math.Min(100, math.Max(0, overall_percent))
 }
 
 // MemoryPercent returns how many percent of the total RAM this process uses
 func (p *Process) MemoryPercent() (float32, error) {
+	return p.MemoryPercentWithContext(context.Background())
+}
+
+func (p *Process) MemoryPercentWithContext(ctx context.Context) (float32, error) {
 	machineMemory, err := mem.VirtualMemory()
 	if err != nil {
 		return 0, err
@@ -197,22 +219,30 @@ func (p *Process) MemoryPercent() (float32, error) {
 	}
 	used := processMemory.RSS
 
-	return (100 * float32(used) / float32(total)), nil
+	return float32(math.Min(100, math.Max(0, (100*float64(used)/float64(total))))), nil
 }
+
 // CPU_Percent returns how many percent of the CPU time this process uses
 func (p *Process) CPUPercent() (float64, error) {
-        crt_time, err := p.CreateTime()
-        if err != nil {
-                return 0, err
-        }
-
-
-        cpu, err := p.Times()
-        if err != nil {
-                return 0, err
-        }
-
-
-        return (100 * (cpu.Total()) / float64(time.Now().Unix()-(crt_time/1000))), nil
+	return p.CPUPercentWithContext(context.Background())
 }
 
+func (p *Process) CPUPercentWithContext(ctx context.Context) (float64, error) {
+	crt_time, err := p.CreateTime()
+	if err != nil {
+		return 0, err
+	}
+
+	cput, err := p.Times()
+	if err != nil {
+		return 0, err
+	}
+
+	created := time.Unix(0, crt_time*int64(time.Millisecond))
+	totalTime := time.Since(created).Seconds()
+	if totalTime <= 0 {
+		return 0, nil
+	}
+
+	return math.Min(100, math.Max(0, 100*cput.Total()/totalTime)), nil
+}
