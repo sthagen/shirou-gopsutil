@@ -181,6 +181,10 @@ func Test_Process_Ppid(t *testing.T) {
 	if v == 0 {
 		t.Errorf("return value is 0 %v", v)
 	}
+	expected := os.Getppid()
+	if v != int32(expected) {
+		t.Errorf("return value is %v, expected %v", v, expected)
+	}
 }
 
 func Test_Process_Status(t *testing.T) {
@@ -240,10 +244,27 @@ func Test_Process_Nice(t *testing.T) {
 	if err != nil {
 		t.Errorf("getting nice error %v", err)
 	}
-	if n != 0 && n != 20 && n != 8 {
+	if runtime.GOOS != "windows" && n != 0 && n != 20 && n != 8 {
 		t.Errorf("invalid nice: %d", n)
 	}
 }
+
+func Test_Process_Groups(t *testing.T) {
+	p := testGetProcess()
+
+	v, err := p.Groups()
+	skipIfNotImplementedErr(t, err)
+	if err != nil {
+		t.Errorf("getting groups error %v", err)
+	}
+	if len(v) == 0 {
+		t.Skip("Groups is empty")
+	}
+	if v[0] < 0 {
+		t.Errorf("invalid Groups: %v", v)
+	}
+}
+
 func Test_Process_NumThread(t *testing.T) {
 	p := testGetProcess()
 
@@ -621,5 +642,44 @@ func Test_IsRunning(t *testing.T) {
 	}
 	if running {
 		t.Fatalf("process should NOT be found running")
+	}
+}
+
+func Test_AllProcesses_cmdLine(t *testing.T) {
+	procs, err := Processes()
+	if err == nil {
+		for _, proc := range procs {
+			var exeName string
+			var cmdLine string
+
+			exeName, _ = proc.Exe()
+			cmdLine, err = proc.Cmdline()
+			if err != nil {
+				cmdLine = "Error: " + err.Error()
+			}
+
+			t.Logf("Process #%v: Name: %v / CmdLine: %v\n", proc.Pid, exeName, cmdLine)
+		}
+	}
+}
+
+func BenchmarkNewProcess(b *testing.B) {
+	checkPid := os.Getpid()
+	for i := 0; i < b.N; i++ {
+		NewProcess(int32(checkPid))
+	}
+}
+
+func BenchmarkProcessName(b *testing.B) {
+	p := testGetProcess()
+	for i := 0; i < b.N; i++ {
+		p.Name()
+	}
+}
+
+func BenchmarkProcessPpid(b *testing.B) {
+	p := testGetProcess()
+	for i := 0; i < b.N; i++ {
+		p.Ppid()
 	}
 }
