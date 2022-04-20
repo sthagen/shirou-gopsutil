@@ -1,3 +1,4 @@
+//go:build darwin || freebsd || openbsd
 // +build darwin freebsd openbsd
 
 package process
@@ -7,9 +8,8 @@ import (
 	"context"
 	"encoding/binary"
 
-	"github.com/shirou/gopsutil/cpu"
-	"github.com/shirou/gopsutil/internal/common"
-	"github.com/shirou/gopsutil/net"
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/internal/common"
 )
 
 type MemoryInfoExStat struct{}
@@ -18,10 +18,6 @@ type MemoryMapsStat struct{}
 
 func (p *Process) TgidWithContext(ctx context.Context) (int32, error) {
 	return 0, common.ErrNotImplementedError
-}
-
-func (p *Process) CwdWithContext(ctx context.Context) (string, error) {
-	return "", common.ErrNotImplementedError
 }
 
 func (p *Process) IOniceWithContext(ctx context.Context) (int32, error) {
@@ -60,15 +56,15 @@ func (p *Process) OpenFilesWithContext(ctx context.Context) ([]OpenFilesStat, er
 	return nil, common.ErrNotImplementedError
 }
 
-func (p *Process) NetIOCountersWithContext(ctx context.Context, pernic bool) ([]net.IOCountersStat, error) {
-	return nil, common.ErrNotImplementedError
-}
-
 func (p *Process) MemoryMapsWithContext(ctx context.Context, grouped bool) (*[]MemoryMapsStat, error) {
 	return nil, common.ErrNotImplementedError
 }
 
 func (p *Process) ThreadsWithContext(ctx context.Context) (map[int32]*cpu.TimesStat, error) {
+	return nil, common.ErrNotImplementedError
+}
+
+func (p *Process) EnvironWithContext(ctx context.Context) ([]string, error) {
 	return nil, common.ErrNotImplementedError
 }
 

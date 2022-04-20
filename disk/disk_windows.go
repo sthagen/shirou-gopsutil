@@ -1,3 +1,4 @@
+//go:build windows
 // +build windows
 
 package disk
@@ -9,7 +10,7 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/shirou/gopsutil/internal/common"
+	"github.com/shirou/gopsutil/v3/internal/common"
 	"golang.org/x/sys/windows"
 )
 
@@ -21,8 +22,8 @@ var (
 )
 
 var (
-	FileFileCompression = int64(16)     // 0x00000010
-	FileReadOnlyVolume  = int64(524288) // 0x00080000
+	fileFileCompression = int64(16)     // 0x00000010
+	fileReadOnlyVolume  = int64(524288) // 0x00080000
 )
 
 // diskPerformance is an equivalent representation of DISK_PERFORMANCE in the Windows API.
@@ -106,16 +107,16 @@ func PartitionsWithContext(ctx context.Context, all bool) ([]PartitionStat, erro
 					uintptr(len(lpFileSystemNameBuffer)))
 				if driveret == 0 {
 					if typeret == 5 || typeret == 2 {
-						continue //device is not ready will happen if there is no disk in the drive
+						continue // device is not ready will happen if there is no disk in the drive
 					}
 					return ret, err
 				}
-				opts := "rw"
-				if lpFileSystemFlags&FileReadOnlyVolume != 0 {
-					opts = "ro"
+				opts := []string{"rw"}
+				if lpFileSystemFlags&fileReadOnlyVolume != 0 {
+					opts = []string{"ro"}
 				}
-				if lpFileSystemFlags&FileFileCompression != 0 {
-					opts += ".compress"
+				if lpFileSystemFlags&fileFileCompression != 0 {
+					opts = append(opts, "compress")
 				}
 
 				d := PartitionStat{
@@ -180,4 +181,12 @@ func IOCountersWithContext(ctx context.Context, names ...string) (map[string]IOC
 		}
 	}
 	return drivemap, nil
+}
+
+func SerialNumberWithContext(ctx context.Context, name string) (string, error) {
+	return "", common.ErrNotImplementedError
+}
+
+func LabelWithContext(ctx context.Context, name string) (string, error) {
+	return "", common.ErrNotImplementedError
 }

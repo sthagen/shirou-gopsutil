@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/shirou/gopsutil/internal/common"
+	"github.com/shirou/gopsutil/v3/internal/common"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -21,10 +21,10 @@ func TestIOCountersByFileParsing(t *testing.T) {
 	assert.Nil(t, err, "Temporary file creation failed: ", err)
 
 	cases := [4][2]string{
-		[2]string{"eth0:   ", "eth1:   "},
-		[2]string{"eth0:0:   ", "eth1:0:   "},
-		[2]string{"eth0:", "eth1:"},
-		[2]string{"eth0:0:", "eth1:0:"},
+		{"eth0:   ", "eth1:   "},
+		{"eth0:0:   ", "eth1:0:   "},
+		{"eth0:", "eth1:"},
+		{"eth0:0:", "eth1:0:"},
 	}
 	for _, testCase := range cases {
 		err = tmpfile.Truncate(0)
@@ -187,7 +187,7 @@ func TestConntrackStatFileParsing(t *testing.T) {
 	assert.Nil(t, err, "Temporary file creation failed: ", err)
 
 	data := []byte(`
-entries  searched found new invalid ignore delete delete_list insert insert_failed drop early_drop icmp_error  expect_new expect_create expect_delete search_restart
+entries  searched found new invalid ignore delete deleteList insert insertFailed drop earlyDrop icmpError  expectNew expectCreate expectDelete searchRestart
 0000007b  00000000 00000000 00000000 000b115a 00000084 00000000 00000000 00000000 00000000 00000000 00000000 00000000  00000000 00000000 00000000 0000004a
 0000007b  00000000 00000000 00000000 0007eee5 00000068 00000000 00000000 00000000 00000000 00000000 00000000 00000000  00000000 00000000 00000000 00000035
 0000007b  00000000 00000000 00000000 0090346b 00000057 00000000 00000000 00000000 00000000 00000000 00000000 00000000  00000000 00000000 00000000 00000025
