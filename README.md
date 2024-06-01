@@ -5,20 +5,21 @@
 This is a port of psutil (https://github.com/giampaolo/psutil). The
 challenge is porting all psutil functions on some architectures.
 
-## v3 migration
+## migration
 
-From v3.20.10, gopsutil becomes v3 which breaks backwards compatibility.
-See [v3Changes.md](_tools/v3migration/v3Changes.md) for more detailed changes.
+### v4 migration
+
+There are some breaking changes. Please see [v4 release note](https://github.com/shirou/gopsutil/releases/tag/v4.24.5).
 
 ## Tag semantics
 
 gopsutil tag policy is almost same as Semantic Versioning, but
 automatically increases like [Ubuntu versioning](https://calver.org/).
 
-For example, v2.17.04 means
+For example, v4.24.04 means
 
-- v2: major version
-- 17: release year, 2017
+- v4: major version
+- 24: release year, 2024
 - 04: release month
 
 gopsutil aims to keep backwards compatibility until major version change.
@@ -33,16 +34,14 @@ can be skipped.
 - Windows i386/amd64/arm/arm64
 - Darwin amd64/arm64
 - OpenBSD i386/amd64/armv7/arm64/riscv64 (Thank you @mpfz0r!)
-- Solaris amd64 (developed and tested on SmartOS/Illumos, Thank you
-  @jen20!)
+- Solaris amd64 (developed and tested on SmartOS/Illumos, Thank you @jen20!)
 
 These have partial support:
 
 - CPU on DragonFly BSD (#893, Thank you @gballet!)
 - host on Linux RISC-V (#896, Thank you @tklauser!)
 
-All works are implemented without cgo by porting C structs to golang
-structs.
+All works are implemented without cgo by porting C structs to golang structs.
 
 ## Usage
 
@@ -52,8 +51,7 @@ package main
 import (
     "fmt"
 
-    "github.com/shirou/gopsutil/v3/mem"
-    // "github.com/shirou/gopsutil/mem"  // to use v2
+    "github.com/shirou/gopsutil/v4/mem"
 )
 
 func main() {
@@ -120,9 +118,34 @@ Be very careful that enabling the cache may cause inconsistencies. For example, 
 - `process`
   - EnableBootTimeCache
 
+### `Ex` struct (from v4.24.5)
+
+gopsutil is designed to work across multiple platforms. However, there are differences in the information available on different platforms, such as memory information that exists on Linux but not on Windows.
+
+As of v4.24.5, to access this platform-specific information, gopsutil provides functions named `Ex` within the package. Currently, these functions are available in the mem and sensor packages.
+
+The Ex structs are specific to each platform. For example, on Linux, there is an `ExLinux` struct, which can be obtained using the `mem.NewExLinux()` function. On Windows, it's `mem.ExWindows()`. These Ex structs provide platform-specific information.
+
+```
+ex := NewExWindows()
+v, err := ex.VirtualMemory()
+if err != nil {
+    panic(err)
+}
+
+fmt.Println(v.VirtualAvail)
+fmt.Println(v.VirtualTotal)
+
+// Output:
+// 140731958648832
+// 140737488224256
+```
+
+gopsutil aims to minimize platform differences by offering common functions. However, there are many requests to obtain unique information for each platform. The Ex structs are designed to meet those requests. Additional functionalities might be added in the future. The use of these structures makes it clear that the information they provide is specific to each platform, which is why they have been designed in this way.
+
 ## Documentation
 
-See https://pkg.go.dev/github.com/shirou/gopsutil/v3 or https://godocs.io/github.com/shirou/gopsutil/v3
+See https://pkg.go.dev/github.com/shirou/gopsutil/v4 or https://godocs.io/github.com/shirou/gopsutil/v4
 
 ## Requirements
 
@@ -322,5 +345,4 @@ I have been influenced by the following great works:
 4.  Push to the branch (git push origin my-new-feature)
 5.  Create new Pull Request
 
-English is not my native language, so PRs correcting grammar or spelling
-are welcome and appreciated.
+English is not my native language, so PRs correcting grammar or spelling are welcome and appreciated.
