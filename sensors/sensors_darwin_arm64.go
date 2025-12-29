@@ -10,171 +10,110 @@ import (
 	"github.com/shirou/gopsutil/v4/internal/common"
 )
 
+const (
+	kHIDPageAppleVendor                  = 0xff00
+	kHIDPageAppleVendorTemperatureSensor = 5
+)
+
 func ReadTemperaturesArm() []TemperatureStat {
 	temperatures, _ := TemperaturesWithContext(context.Background())
 	return temperatures
 }
 
 func TemperaturesWithContext(_ context.Context) ([]TemperatureStat, error) {
-	ioKit, err := common.NewLibrary(common.IOKit)
+	iokit, err := common.NewIOKitLib()
 	if err != nil {
 		return nil, err
 	}
-	defer ioKit.Close()
+	defer iokit.Close()
 
-	coreFoundation, err := common.NewLibrary(common.CoreFoundation)
+	cf, err := common.NewCoreFoundationLib()
 	if err != nil {
 		return nil, err
 	}
-	defer coreFoundation.Close()
+	defer cf.Close()
 
 	ta := &temperatureArm{
-		ioKit:                              ioKit,
-		cf:                                 coreFoundation,
-		cfRelease:                          common.GetFunc[common.CFReleaseFunc](coreFoundation, common.CFReleaseSym),
-		cfStringCreateWithCString:          common.GetFunc[common.CFStringCreateWithCStringFunc](coreFoundation, common.CFStringCreateWithCStringSym),
-		cfArrayGetCount:                    common.GetFunc[common.CFArrayGetCountFunc](coreFoundation, common.CFArrayGetCountSym),
-		cfArrayGetValueAtIndex:             common.GetFunc[common.CFArrayGetValueAtIndexFunc](coreFoundation, common.CFArrayGetValueAtIndexSym),
-		ioHIDEventSystemClientCreate:       common.GetFunc[common.IOHIDEventSystemClientCreateFunc](ioKit, common.IOHIDEventSystemClientCreateSym),
-		ioHIDEventSystemClientSetMatching:  common.GetFunc[common.IOHIDEventSystemClientSetMatchingFunc](ioKit, common.IOHIDEventSystemClientSetMatchingSym),
-		ioHIDEventSystemClientCopyServices: common.GetFunc[common.IOHIDEventSystemClientCopyServicesFunc](ioKit, common.IOHIDEventSystemClientCopyServicesSym),
+		iokit: iokit,
+		cf:    cf,
 	}
 
-	ta.matching(0xff00, 5)
-	defer ta.cfRelease(uintptr(ta.sensors))
+	sensors := ta.matching(kHIDPageAppleVendor, kHIDPageAppleVendorTemperatureSensor)
+	defer cf.CFRelease(uintptr(sensors))
 
 	// Create HID system client
-	system := ta.ioHIDEventSystemClientCreate(common.KCFAllocatorDefault)
-	defer ta.cfRelease(uintptr(system))
+	system := iokit.IOHIDEventSystemClientCreate(common.KCFAllocatorDefault)
+	defer cf.CFRelease(uintptr(system))
 
-	thermalNames := ta.getProductNames(system)
-	thermalValues := ta.getThermalValues(system)
-	result := dumpNameValues(thermalNames, thermalValues)
-
-	return result, nil
-}
-
-func dumpNameValues(kvsN []string, kvsV []float64) []TemperatureStat {
-	count := len(kvsN)
-	temperatureMap := make(map[string]TemperatureStat)
-
-	for i := 0; i < count; i++ {
-		temperatureMap[kvsN[i]] = TemperatureStat{
-			SensorKey:   kvsN[i],
-			Temperature: kvsV[i],
-		}
-	}
-
-	temperatures := make([]TemperatureStat, 0, len(temperatureMap))
-	for _, stat := range temperatureMap {
-		temperatures = append(temperatures, stat)
-	}
-
-	return temperatures
+	return ta.getSensors(system, sensors), nil
 }
 
 type temperatureArm struct {
-	ioKit *common.Library
-	cf    *common.Library
-
-	cfRelease                 common.CFReleaseFunc
-	cfStringCreateWithCString common.CFStringCreateWithCStringFunc
-	cfArrayGetCount           common.CFArrayGetCountFunc
-	cfArrayGetValueAtIndex    common.CFArrayGetValueAtIndexFunc
-
-	ioHIDEventSystemClientCreate       common.IOHIDEventSystemClientCreateFunc
-	ioHIDEventSystemClientSetMatching  common.IOHIDEventSystemClientSetMatchingFunc
-	ioHIDEventSystemClientCopyServices common.IOHIDEventSystemClientCopyServicesFunc
-
-	sensors unsafe.Pointer
+	iokit *common.IOKitLib
+	cf    *common.CoreFoundationLib
 }
 
-func (ta *temperatureArm) getProductNames(system unsafe.Pointer) []string {
-	ioHIDServiceClientCopyProperty := common.GetFunc[common.IOHIDServiceClientCopyPropertyFunc](ta.ioKit, common.IOHIDServiceClientCopyPropertySym)
-	cfStringGetLength := common.GetFunc[common.CFStringGetLengthFunc](ta.cf, common.CFStringGetLengthSym)
-	cfStringGetCString := common.GetFunc[common.CFStringGetCStringFunc](ta.cf, common.CFStringGetCStringSym)
-
-	ta.ioHIDEventSystemClientSetMatching(uintptr(system), uintptr(ta.sensors))
-	matchingsrvs := ta.ioHIDEventSystemClientCopyServices(uintptr(system))
+func (ta *temperatureArm) getSensors(system, sensors unsafe.Pointer) []TemperatureStat {
+	ta.iokit.IOHIDEventSystemClientSetMatching(uintptr(system), uintptr(sensors))
+	matchingsrvs := ta.iokit.IOHIDEventSystemClientCopyServices(uintptr(system))
 
 	if matchingsrvs == nil {
 		return nil
 	}
-	defer ta.cfRelease(uintptr(matchingsrvs))
+	defer ta.cf.CFRelease(uintptr(matchingsrvs))
 
-	count := ta.cfArrayGetCount(uintptr(matchingsrvs))
+	str := ta.cf.CFStringCreateWithCString(common.KCFAllocatorDefault, "Product", common.KCFStringEncodingUTF8)
+	defer ta.cf.CFRelease(uintptr(str))
 
-	var i int32
-	str := ta.cfStr("Product")
-	defer ta.cfRelease(uintptr(str))
+	count := ta.cf.CFArrayGetCount(uintptr(matchingsrvs))
+	stats := make([]TemperatureStat, 0, count)
 
-	names := make([]string, 0, count)
-	for i = 0; i < count; i++ {
-		sc := ta.cfArrayGetValueAtIndex(uintptr(matchingsrvs), i)
-		name := ioHIDServiceClientCopyProperty(uintptr(sc), uintptr(str))
+	nameSet := make(map[string]struct{})
+	for i := count - 1; i >= 0; i-- {
+		sc := ta.cf.CFArrayGetValueAtIndex(uintptr(matchingsrvs), i)
+		event := ta.iokit.IOHIDServiceClientCopyEvent(uintptr(sc), common.KIOHIDEventTypeTemperature, 0, 0)
+		if event == nil {
+			continue
+		}
 
-		if name != nil {
-			buf := common.NewCStr(cfStringGetLength(uintptr(name)))
-			cfStringGetCString(uintptr(name), buf, buf.Length(), common.KCFStringEncodingUTF8)
+		temp := ta.iokit.IOHIDEventGetFloatValue(uintptr(event), ioHIDEventFieldBase(common.KIOHIDEventTypeTemperature))
+		ta.cf.CFRelease(uintptr(event))
 
-			names = append(names, buf.GoString())
-			ta.cfRelease(uintptr(name))
-		} else {
-			// make sure the number of names and values are consistent
-			names = append(names, "noname")
+		nameRef := ta.iokit.IOHIDServiceClientCopyProperty(uintptr(sc), uintptr(str))
+		if nameRef != nil {
+			buf := common.NewCStr(ta.cf.CFStringGetLength(uintptr(nameRef)))
+			ta.cf.CFStringGetCString(uintptr(nameRef), buf, buf.Length(), common.KCFStringEncodingUTF8)
+
+			name := buf.GoString()
+			if _, ok := nameSet[name]; ok {
+				ta.cf.CFRelease(uintptr(nameRef))
+				continue
+			}
+
+			stats = append(stats, TemperatureStat{
+				SensorKey:   name,
+				Temperature: temp,
+			})
+			nameSet[name] = struct{}{}
+			ta.cf.CFRelease(uintptr(nameRef))
 		}
 	}
 
-	return names
+	return stats
 }
 
-func (ta *temperatureArm) getThermalValues(system unsafe.Pointer) []float64 {
-	ioHIDServiceClientCopyEvent := common.GetFunc[common.IOHIDServiceClientCopyEventFunc](ta.ioKit, common.IOHIDServiceClientCopyEventSym)
-	ioHIDEventGetFloatValue := common.GetFunc[common.IOHIDEventGetFloatValueFunc](ta.ioKit, common.IOHIDEventGetFloatValueSym)
+func (ta *temperatureArm) matching(page, usage int32) unsafe.Pointer {
+	pageNum := ta.cf.CFNumberCreate(common.KCFAllocatorDefault, common.KCFNumberIntType, uintptr(unsafe.Pointer(&page)))
+	defer ta.cf.CFRelease(uintptr(pageNum))
 
-	ta.ioHIDEventSystemClientSetMatching(uintptr(system), uintptr(ta.sensors))
-	matchingsrvs := ta.ioHIDEventSystemClientCopyServices(uintptr(system))
+	usageNum := ta.cf.CFNumberCreate(common.KCFAllocatorDefault, common.KCFNumberIntType, uintptr(unsafe.Pointer(&usage)))
+	defer ta.cf.CFRelease(uintptr(usageNum))
 
-	if matchingsrvs == nil {
-		return nil
-	}
-	defer ta.cfRelease(uintptr(matchingsrvs))
+	k1 := ta.cf.CFStringCreateWithCString(common.KCFAllocatorDefault, "PrimaryUsagePage", common.KCFStringEncodingUTF8)
+	k2 := ta.cf.CFStringCreateWithCString(common.KCFAllocatorDefault, "PrimaryUsage", common.KCFStringEncodingUTF8)
 
-	count := ta.cfArrayGetCount(uintptr(matchingsrvs))
-
-	var values []float64
-	var i int32
-	for i = 0; i < count; i++ {
-		sc := ta.cfArrayGetValueAtIndex(uintptr(matchingsrvs), i)
-		event := ioHIDServiceClientCopyEvent(uintptr(sc), common.KIOHIDEventTypeTemperature, 0, 0)
-		temp := 0.0
-
-		if event != nil {
-			temp = ioHIDEventGetFloatValue(uintptr(event), ioHIDEventFieldBase(common.KIOHIDEventTypeTemperature))
-			ta.cfRelease(uintptr(event))
-		}
-
-		values = append(values, temp)
-	}
-
-	return values
-}
-
-func (ta *temperatureArm) matching(page, usage int) {
-	cfNumberCreate := common.GetFunc[common.CFNumberCreateFunc](ta.cf, common.CFNumberCreateSym)
-	cfDictionaryCreate := common.GetFunc[common.CFDictionaryCreateFunc](ta.cf, common.CFDictionaryCreateSym)
-
-	pageNum := cfNumberCreate(common.KCFAllocatorDefault, common.KCFNumberIntType, uintptr(unsafe.Pointer(&page)))
-	defer ta.cfRelease(uintptr(pageNum))
-
-	usageNum := cfNumberCreate(common.KCFAllocatorDefault, common.KCFNumberIntType, uintptr(unsafe.Pointer(&usage)))
-	defer ta.cfRelease(uintptr(usageNum))
-
-	k1 := ta.cfStr("PrimaryUsagePage")
-	k2 := ta.cfStr("PrimaryUsage")
-
-	defer ta.cfRelease(uintptr(k1))
-	defer ta.cfRelease(uintptr(k2))
+	defer ta.cf.CFRelease(uintptr(k1))
+	defer ta.cf.CFRelease(uintptr(k2))
 
 	keys := []unsafe.Pointer{k1, k2}
 	values := []unsafe.Pointer{pageNum, usageNum}
@@ -182,13 +121,9 @@ func (ta *temperatureArm) matching(page, usage int) {
 	kCFTypeDictionaryKeyCallBacks, _ := ta.cf.Dlsym("kCFTypeDictionaryKeyCallBacks")
 	kCFTypeDictionaryValueCallBacks, _ := ta.cf.Dlsym("kCFTypeDictionaryValueCallBacks")
 
-	ta.sensors = cfDictionaryCreate(common.KCFAllocatorDefault, &keys[0], &values[0], 2,
+	return ta.cf.CFDictionaryCreate(common.KCFAllocatorDefault, &keys[0], &values[0], 2,
 		kCFTypeDictionaryKeyCallBacks,
 		kCFTypeDictionaryValueCallBacks)
-}
-
-func (ta *temperatureArm) cfStr(str string) unsafe.Pointer {
-	return ta.cfStringCreateWithCString(common.KCFAllocatorDefault, str, common.KCFStringEncodingUTF8)
 }
 
 func ioHIDEventFieldBase(i int32) int32 {
