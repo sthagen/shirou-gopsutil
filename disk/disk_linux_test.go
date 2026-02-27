@@ -31,7 +31,7 @@ func Test_parseFieldsOnMountinfo(t *testing.T) {
 			expect: []PartitionStat{
 				{Device: "/dev/sda1", Mountpoint: "/", Fstype: "ext4", Opts: []string{"rw", "noatime"}},
 				{Device: "/dev/sda2", Mountpoint: "/foo", Fstype: "ext4", Opts: []string{"rw", "noatime"}},
-				{Device: "/foo", Mountpoint: "/foo/bar", Fstype: "ext4", Opts: []string{"rw", "noatime", "bind"}},
+				{Device: "/dev/sda2", Mountpoint: "/foo/bar", Fstype: "ext4", Opts: []string{"rw", "noatime", "bind"}},
 				{Device: "-", Mountpoint: "/dev/shm", Fstype: "tmpfs", Opts: []string{"rw", "nosuid", "nodev", "noexec", "relatime"}},
 				{Device: "net:[12345]", Mountpoint: "/run/netns/foo", Fstype: "nsfs", Opts: []string{"rw"}},
 				{Device: "sysfs", Mountpoint: "/sys", Fstype: "sysfs", Opts: []string{"rw", "nosuid", "nodev", "noexec", "noatime"}},
@@ -54,6 +54,29 @@ func Test_parseFieldsOnMountinfo(t *testing.T) {
 			assert.Equal(t, c.expect, actual)
 		})
 	}
+}
+
+func Test_parseFieldsOnMountinfo_multiMount(t *testing.T) {
+	// Reproduces issue #2005: same block device (259:4) mounted multiple times
+	// with different rootDirs. Bind mounts should be detected by rootDir != "/",
+	// not by whether the device ID was seen before.
+	lines := []string{
+		"1204 1184 259:4 /var/lib/kubelet/pods/abc/volumes/tmp     /tmp               rw,relatime shared:1 - ext4 /dev/nvme0n1p3 rw",
+		"1205 1184 259:4 /var/lib/kubelet/pods/abc/volumes/config  /etc/datadog-agent rw,relatime shared:1 - ext4 /dev/nvme0n1p3 rw",
+		"1209 1184 259:4 /etc/passwd                               /etc/passwd        ro,relatime shared:1 - ext4 /dev/nvme0n1p3 rw",
+		"1210 1184 259:4 /                                         /host/root         ro,relatime shared:1 - ext4 /dev/nvme0n1p3 rw",
+	}
+
+	actual, err := parseFieldsOnMountinfo(context.Background(), lines, true, "")
+	require.NoError(t, err)
+
+	expected := []PartitionStat{
+		{Device: "/dev/nvme0n1p3", Mountpoint: "/tmp", Fstype: "ext4", Opts: []string{"rw", "relatime", "bind"}},
+		{Device: "/dev/nvme0n1p3", Mountpoint: "/etc/datadog-agent", Fstype: "ext4", Opts: []string{"rw", "relatime", "bind"}},
+		{Device: "/dev/nvme0n1p3", Mountpoint: "/etc/passwd", Fstype: "ext4", Opts: []string{"ro", "relatime", "bind"}},
+		{Device: "/dev/nvme0n1p3", Mountpoint: "/host/root", Fstype: "ext4", Opts: []string{"ro", "relatime"}},
+	}
+	assert.Equal(t, expected, actual)
 }
 
 func Test_parseFieldsOnMounts(t *testing.T) {
