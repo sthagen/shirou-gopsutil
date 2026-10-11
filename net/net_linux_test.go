@@ -3,7 +3,9 @@ package net
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -74,6 +76,13 @@ func TestIOCountersByFileParsing(t *testing.T) {
 		assert.Equal(t, uint64(1100), counters[1].Errout)
 		assert.Equal(t, uint64(1200), counters[1].Dropout)
 		assert.Equal(t, uint64(1300), counters[1].Fifoout)
+
+		total, err := IOCountersByFile(false, tmpfile.Name())
+		require.NoError(t, err)
+		require.Len(t, total, 1)
+		assert.Equal(t, "all", total[0].Name)
+		assert.Equal(t, uint64(505), total[0].Fifoin)
+		assert.Equal(t, uint64(1313), total[0].Fifoout)
 	}
 
 	assert.NoErrorf(t, tmpfile.Close(), "Temporary file closing failed")
@@ -440,5 +449,37 @@ entries  searched found new invalid ignore delete deleteList insert insertFailed
 		assert.Equal(t, summary.SearchRestart, st.SearchRestart)
 
 		assert.Equal(t, 0, i) // Should only have one element
+	}
+}
+
+func TestIsProcessGone(t *testing.T) {
+	// getProcInodes returns errors from os.Open and (*os.File).ReadDir on
+	// /proc/<pid>/fd, which wrap the errno in *os.PathError. For a reaped
+	// process, open can fail with ESRCH or ENOENT, and ReadDir with ENOENT.
+	pathErr := func(op string, errno error) error {
+		return &os.PathError{Op: op, Path: "/proc/12345/fd", Err: errno}
+	}
+
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"open ESRCH", pathErr("open", syscall.ESRCH), true},
+		{"open ENOENT", pathErr("open", syscall.ENOENT), true},
+		{"readdirent ENOENT", pathErr("readdirent", syscall.ENOENT), true},
+		{"open EACCES", pathErr("open", syscall.EACCES), true},
+		{"open EPERM", pathErr("open", syscall.EPERM), true},
+		{"io.EOF", io.EOF, true},
+		{"wrapped io.EOF", fmt.Errorf("readdir: %w", io.EOF), true},
+		{"open EIO", pathErr("open", syscall.EIO), false},
+		{"readdirent EIO", pathErr("readdirent", syscall.EIO), false},
+		{"unrelated error", errors.New("boom"), false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, c.want, isProcessGone(c.err))
+		})
 	}
 }
